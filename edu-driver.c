@@ -58,7 +58,7 @@ struct edu_device {
     bool registered_irq_handler;
     bool added_cdev;
     struct cdev cdev;
-    char *iomem;
+    char __iomem *iomem;
     unsigned int irq;
     u32 irq_value;
     wait_queue_head_t irq_wait_queue;
@@ -99,7 +99,7 @@ static int edu_mmap(struct file *filp, struct vm_area_struct *vma) {
 }
 
 static int ioctl_ident(struct edu_device *dev, u32 __user *arg) {
-    u32 val = ioread32(dev->iomem + EDU_ADDR_IDENT);
+    u32 val = readl(dev->iomem + EDU_ADDR_IDENT);
     return put_user(val, arg);
 }
 
@@ -108,13 +108,13 @@ static int ioctl_liveness(struct edu_device *dev, u32 __user *arg) {
     if (get_user(val, arg)) {
         return -EFAULT;
     }
-    iowrite32(val, dev->iomem + EDU_ADDR_LIVENESS);
-    val = ioread32(dev->iomem + EDU_ADDR_LIVENESS);
+    writel(val, dev->iomem + EDU_ADDR_LIVENESS);
+    val = readl(dev->iomem + EDU_ADDR_LIVENESS);
     return put_user(val, arg);
 }
 
 static bool is_computing_factorial(struct edu_device *dev) {
-    return ioread32(dev->iomem + EDU_ADDR_STATUS) & EDU_STATUS_COMPUTING;
+    return readl(dev->iomem + EDU_ADDR_STATUS) & EDU_STATUS_COMPUTING;
 }
 
 static int ioctl_factorial(struct edu_device *dev, u32 __user *arg) {
@@ -123,14 +123,14 @@ static int ioctl_factorial(struct edu_device *dev, u32 __user *arg) {
         return -EFAULT;
     }
     // raise interrupt after finishing factorial computation
-    iowrite32(EDU_STATUS_RAISE_IRQ, dev->iomem + EDU_ADDR_STATUS);
+    writel(EDU_STATUS_RAISE_IRQ, dev->iomem + EDU_ADDR_STATUS);
     edu_log("Writing %u to register\n", val);
-    iowrite32(val, dev->iomem + EDU_ADDR_FACTORIAL);
+    writel(val, dev->iomem + EDU_ADDR_FACTORIAL);
     if (wait_event_interruptible(dev->irq_wait_queue, !is_computing_factorial(dev))) {
         return -ERESTARTSYS;
     }
     // read result
-    val = ioread32(dev->iomem + EDU_ADDR_FACTORIAL);
+    val = readl(dev->iomem + EDU_ADDR_FACTORIAL);
     edu_log("Got factorial result: %u\n", val);
     return put_user(val, arg);
 }
@@ -147,12 +147,12 @@ static int ioctl_wait_irq(struct edu_device *dev, u32 __user *arg) {
 }
 
 static int ioctl_raise_irq(struct edu_device *dev, u32 arg) {
-    iowrite32(arg, dev->iomem + EDU_ADDR_IRQ_RAISE);
+    writel(arg, dev->iomem + EDU_ADDR_IRQ_RAISE);
     return 0;
 }
 
 static bool is_doing_dma(struct edu_device *dev) {
-    return ioread32(dev->iomem + EDU_ADDR_DMA_CMD) & EDU_DMA_CMD_START_XFER;
+    return readl(dev->iomem + EDU_ADDR_DMA_CMD) & EDU_DMA_CMD_START_XFER;
 }
 
 static int do_dma(struct edu_device *dev, u32 len, bool to_device) {
@@ -161,7 +161,7 @@ static int do_dma(struct edu_device *dev, u32 len, bool to_device) {
         return -EINVAL;
     }
     if (dev->dma_bus_addr > ~(u32)0) {
-        pr_warn("DMA bus addr is greater than 32 bits, cannot use iowrite32\n");
+        pr_warn("DMA bus addr is greater than 32 bits, cannot use writel\n");
         return -EOPNOTSUPP;
     }
     if (to_device) {
@@ -174,10 +174,10 @@ static int do_dma(struct edu_device *dev, u32 len, bool to_device) {
         cmd = EDU_DMA_CMD_START_XFER | EDU_DMA_CMD_DEVICE_TO_RAM | EDU_DMA_CMD_RAISE_IRQ;
     }
     edu_log("src=0x%08x dst=0x%08x len=%u\n", src, dst, len);
-    iowrite32(src, dev->iomem + EDU_ADDR_DMA_SRC);
-    iowrite32(dst, dev->iomem + EDU_ADDR_DMA_DST);
-    iowrite32(len, dev->iomem + EDU_ADDR_DMA_XFER);
-    iowrite32(cmd, dev->iomem + EDU_ADDR_DMA_CMD);
+    writel(src, dev->iomem + EDU_ADDR_DMA_SRC);
+    writel(dst, dev->iomem + EDU_ADDR_DMA_DST);
+    writel(len, dev->iomem + EDU_ADDR_DMA_XFER);
+    writel(cmd, dev->iomem + EDU_ADDR_DMA_CMD);
     if (wait_event_interruptible(dev->irq_wait_queue, !is_doing_dma(dev))) {
         return -ERESTARTSYS;
     }
@@ -233,10 +233,10 @@ static irqreturn_t edu_irq_handler(int irq, void *dev_id) {
     u32 irq_value;
 
     // Read the value which raised the interrupt
-    irq_value = ioread32(dev->iomem + EDU_ADDR_IRQ_STATUS);
+    irq_value = readl(dev->iomem + EDU_ADDR_IRQ_STATUS);
     edu_log("irq_value = %u\n", irq_value);
     // Clear the interrupt
-    iowrite32(irq_value, dev->iomem + EDU_ADDR_IRQ_ACK);
+    writel(irq_value, dev->iomem + EDU_ADDR_IRQ_ACK);
     // Wake up any tasks waiting on the queue
     WRITE_ONCE(dev->irq_value, irq_value);
     wake_up_interruptible(&dev->irq_wait_queue);
