@@ -60,7 +60,7 @@ struct edu_device {
     struct cdev cdev;
     char *iomem;
     unsigned int irq;
-    volatile u32 irq_value;
+    u32 irq_value;
     wait_queue_head_t irq_wait_queue;
     dma_addr_t dma_bus_addr;
     void *dma_virt_addr;
@@ -143,7 +143,7 @@ static int ioctl_wait_irq(struct edu_device *dev, u32 __user *arg) {
     if (signal_pending(current)) {
         return -ERESTARTSYS;
     }
-    return put_user(dev->irq_value, arg);
+    return put_user(READ_ONCE(dev->irq_value), arg);
 }
 
 static int ioctl_raise_irq(struct edu_device *dev, u32 arg) {
@@ -238,7 +238,7 @@ static irqreturn_t edu_irq_handler(int irq, void *dev_id) {
     // Clear the interrupt
     iowrite32(irq_value, dev->iomem + EDU_ADDR_IRQ_ACK);
     // Wake up any tasks waiting on the queue
-    dev->irq_value = irq_value;
+    WRITE_ONCE(dev->irq_value, irq_value);
     wake_up_interruptible(&dev->irq_wait_queue);
     return IRQ_HANDLED;
 }
