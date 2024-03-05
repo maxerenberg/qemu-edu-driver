@@ -94,6 +94,7 @@ static int edu_mmap(struct file *filp, struct vm_area_struct *vma) {
     if (vma->vm_pgoff) {
         return -EINVAL;
     }
+    vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
     // VM_IO | VM_DONTEXPAND | VM_DONTDUMP are set by remap_pfn_range()
     return vm_iomap_memory(vma, __pa(dev->dma_virt_addr), len);
 }
